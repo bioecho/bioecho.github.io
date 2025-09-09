@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BioEcho — Overlay Animation with Fullscreen Video</title>
+<style>
+  :root{
+    --pulse-scale: 1.035;
+    --pulse-dur: 2.2s;
+    --draw-dur: 1.6s;
+    --draw-gap: .15s;
+    --logo-width: min(70vw, 560px);
+
+    --ring-size: min(650px);
+    --ring-stroke: 2px;
+    --ring-color: rgba(255,255,255,.8); /* 白色外圈，适合视频背景 */
+    --ring-fade: .9s;
+    --ring-grow: 1.2s;
+  }
+
+  body{
+    margin:0; min-height:100vh;
+    background:#0b1224; color:#e6ecff;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+
+  /* ✅ 全屏背景视频 */
+  #demoVideo{
+    position:fixed; inset:0;
+    width:100%; height:100%;
+    object-fit:cover;
+    z-index:-1;              /* 在最底层 */
+    opacity:0;
+    transition:opacity 1.5s ease;
+  }
+  #demoVideo.show{ opacity:1; }
+
+  .logo-overlay{
+    position: fixed; inset: 0;
+    display:flex; align-items:center; justify-content:center;
+    pointer-events:none;
+    z-index: 10; /* 在视频上方 */
+  }
+  .logo-box{
+    width: var(--logo-width);
+    max-width: 90vw;
+    aspect-ratio: 261/48;
+    display:flex; align-items:center; justify-content:center;
+    opacity:0;
+    transition: opacity .12s linear;
+    filter: drop-shadow(0 6px 16px rgba(0,0,0,.25));
+  }
+  .logo-box.start{ opacity:1; }
+
+  .logo-box.start svg{
+    width:100%; height:auto; display:block;
+    transform-origin:50% 50%;
+    animation: pulse var(--pulse-dur) ease-out 1 both;
+  }
+  @keyframes pulse{
+    0%{transform:scale(1)}
+    10%{transform:scale(var(--pulse-scale))}
+    18%{transform:scale(1)}
+    100%{transform:scale(1)}
+  }
+
+  .bioecho-stroke{
+    stroke-dasharray: var(--len,0);
+    stroke-dashoffset: var(--len,0);
+    animation: draw var(--draw-dur) ease-in-out forwards;
+    animation-play-state: paused;
+    filter: drop-shadow(0 0 4px rgba(0,194,255,0.25));
+  }
+  .logo-box.start .bioecho-stroke{ animation-play-state: running; }
+  @keyframes draw{
+    0%  { stroke-dashoffset: var(--len,0); opacity:.9 }
+    85% { stroke-dashoffset: 0;           opacity:1 }
+    100%{ stroke-dashoffset: 0;           opacity:1 }
+  }
+
+  /* 外圈 */
+  .ring{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    pointer-events:none;
+    opacity:0;
+    transition: opacity var(--ring-fade) ease;
+  }
+  .ring::before{
+    content:"";
+    width: var(--ring-size);
+    height: var(--ring-size);
+    border-radius: 50%;
+    border: var(--ring-stroke) solid var(--ring-color);
+    opacity:0; transform: scale(.98);
+    transition:
+      opacity var(--ring-fade) ease,
+      transform var(--ring-grow) ease;
+    will-change: opacity, transform;
+  }
+  .logo-overlay.ring-on .ring{ opacity:1; }
+  .logo-overlay.ring-on .ring::before{
+    opacity:1; transform: scale(1);
+  }
+</style>
+</head>
+<body>
+
+  <!-- 背景视频 -->
+  <video id="demoVideo" src="demo1.mp4" muted loop playsinline></video>
+
+  <!-- Logo + 圆圈 -->
+  <div class="logo-overlay" id="overlay" aria-hidden="true">
+    <div class="logo-box" id="logoBox"></div>
+    <div class="ring" aria-hidden="true"></div>
+  </div>
+
+<script>
+(async function(){
+  const overlay = document.getElementById('overlay');
+  const box = document.getElementById('logoBox');
+  const video = document.getElementById('demoVideo');
+
+  // 加载 SVG
+  let svgText = '';
+  try{
+    const res = await fetch('./BioEcho-all.svg', { cache:'no-store' });
+    if(!res.ok) throw new Error('Failed to load SVG: '+res.status);
+    svgText = await res.text();
+  }catch(e){
+    console.error(e); overlay.style.display='none'; return;
+  }
+
+  box.insertAdjacentHTML('afterbegin', svgText);
+  const svg = box.querySelector('svg');
+  if(!svg){ overlay.style.display='none'; return; }
+
+  const nodes = svg.querySelectorAll('path,line,polyline,polygon,circle,ellipse,rect');
+  const hasStroke = (el)=>{
+    const aS = el.getAttribute('stroke');
+    const aF = el.getAttribute('fill');
+    const st = el.getAttribute('style')||'';
+    if(aS && aS!=='none') return true;
+    if(st.includes('stroke:') && !st.includes('stroke: none')) return true;
+    if((aF==='none' || st.includes('fill: none')) && (aS || st.includes('stroke:'))) return true;
+    const cs = getComputedStyle(el);
+    return cs.stroke && cs.stroke!=='none' && parseFloat(cs.strokeOpacity||'1')>0 && parseFloat(cs.strokeWidth||'0')>0;
+  };
+
+  let idx = 0;
+  nodes.forEach(el=>{
+    if(!hasStroke(el)) return;
+    el.classList.add('bioecho-stroke');
+    try{
+      const len = typeof el.getTotalLength==='function' ? el.getTotalLength() : 0;
+      el.style.setProperty('--len', len.toFixed(2));
+    }catch(_){}
+    el.style.animationDelay = (idx * (parseFloat(getComputedStyle(document.documentElement)
+                                   .getPropertyValue('--draw-gap')) || 0.15)) + 's';
+    idx++;
+  });
+
+  // 延迟 1 秒启动动画
+  setTimeout(() => {
+    box.classList.add('start');
+    waitForAllAnimationsThenShowRing();
+  }, 1000);
+
+  function waitForAllAnimationsThenShowRing(){
+    const strokes = svg.querySelectorAll('.bioecho-stroke');
+    let remaining = strokes.length + 1;
+
+    const done = () => {
+      remaining--;
+      if (remaining <= 0) {
+        overlay.classList.add('ring-on'); // 外圈
+        // 外圈出现后，再显示并播放背景视频
+        setTimeout(()=>{
+          video.classList.add('show');
+          video.play().catch(e=>console.log("Autoplay blocked:",e));
+        }, 800); // 与 --ring-fade 对齐
+      }
+    };
+
+    svg.addEventListener('animationend', (e)=>{
+      if (e.animationName === 'pulse') done();
+    });
+    strokes.forEach(el => el.addEventListener('animationend', done, { once:true }));
+  }
+})();
+</script>
+
+</body>
+</html>
