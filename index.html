@@ -14,14 +14,17 @@
 
     --ring-size: min(650px);
     --ring-stroke: 2px;
-    --ring-color: rgba(255,255,255,.8); /* 白色外圈，适合视频背景 */
+    --ring-color: rgba(255,255,255,.8);
     --ring-fade: .9s;
     --ring-grow: 1.2s;
+
+    --overlay-fade: 1s;          /* NEW: 覆盖层淡出时长 */
+    --video-fade: 1.5s;          /* 保持你的视频淡入时长 */
   }
 
   body{
     margin:0; min-height:100vh;
-    background:#0b1224; color:#e6ecff;
+    background:#ffffff; color:#e6ecff;
     font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
   }
 
@@ -32,7 +35,7 @@
     object-fit:cover;
     z-index:-1;              /* 在最底层 */
     opacity:0;
-    transition:opacity 1.5s ease;
+    transition:opacity var(--video-fade) ease;
   }
   #demoVideo.show{ opacity:1; }
 
@@ -41,7 +44,11 @@
     display:flex; align-items:center; justify-content:center;
     pointer-events:none;
     z-index: 10; /* 在视频上方 */
+    opacity:1;                               /* NEW */
+    transition: opacity var(--overlay-fade) ease; /* NEW */
   }
+  .logo-overlay.fade-out{ opacity:0; }       /* NEW：触发渐出 */
+
   .logo-box{
     width: var(--logo-width);
     max-width: 90vw;
@@ -107,8 +114,8 @@
 </head>
 <body>
 
-  <!-- 背景视频 -->
-  <video id="demoVideo" src="demo1.mp4" muted loop playsinline></video>
+  <!-- 背景视频（NEW: 去掉 loop，让视频只播放一次） -->
+  <video id="demoVideo" src="demo1.mp4" muted playsinline></video>
 
   <!-- Logo + 圆圈 -->
   <div class="logo-overlay" id="overlay" aria-hidden="true">
@@ -121,6 +128,9 @@
   const overlay = document.getElementById('overlay');
   const box = document.getElementById('logoBox');
   const video = document.getElementById('demoVideo');
+
+  // 保险起见：确保不循环（即使有人误加了 loop）
+  video.loop = false; /* NEW */
 
   // 加载 SVG
   let svgText = '';
@@ -174,12 +184,23 @@
     const done = () => {
       remaining--;
       if (remaining <= 0) {
-        overlay.classList.add('ring-on'); // 外圈
-        // 外圈出现后，再显示并播放背景视频
+        overlay.classList.add('ring-on'); // 外圈出现
+        // 外圈出现后，显示并播放背景视频
         setTimeout(()=>{
           video.classList.add('show');
-          video.play().catch(e=>console.log("Autoplay blocked:",e));
-        }, 800); // 与 --ring-fade 对齐
+          const tryPlay = () => video.play().catch(e=>console.log("Autoplay blocked:",e));
+          tryPlay();
+
+          // NEW: 只要视频一进入 playing 状态，就把覆盖层淡出
+          const onPlaying = () => {
+            overlay.classList.add('fade-out');            // 渐出 Logo & 圈
+            overlay.addEventListener('transitionend', ()=> {
+              overlay.style.display = 'none';             // 过渡结束后隐藏
+            }, { once:true });
+            video.removeEventListener('playing', onPlaying);
+          };
+          video.addEventListener('playing', onPlaying);
+        }, 800); // 跟 --ring-fade 对齐
       }
     };
 
