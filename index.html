@@ -12,14 +12,8 @@
     --draw-gap: .15s;
     --logo-width: min(70vw, 560px);
 
-    --ring-size: min(650px);
-    --ring-stroke: 2px;
-    --ring-color: rgba(255,255,255,.8);
-    --ring-fade: .9s;
-    --ring-grow: 1.2s;
-
-    --overlay-fade: 1s;          /* NEW: 覆盖层淡出时长 */
-    --video-fade: 1.5s;          /* 保持你的视频淡入时长 */
+    --overlay-fade: 1s;   /* 覆盖层淡出时长 */
+    --video-fade: 1.5s;   /* 视频淡入时长 */
   }
 
   body{
@@ -28,12 +22,12 @@
     font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
   }
 
-  /* ✅ 全屏背景视频 */
+  /* 全屏背景视频 */
   #demoVideo{
     position:fixed; inset:0;
     width:100%; height:100%;
     object-fit:cover;
-    z-index:-1;              /* 在最底层 */
+    z-index:-1;              
     opacity:0;
     transition:opacity var(--video-fade) ease;
   }
@@ -43,11 +37,11 @@
     position: fixed; inset: 0;
     display:flex; align-items:center; justify-content:center;
     pointer-events:none;
-    z-index: 10; /* 在视频上方 */
-    opacity:1;                               /* NEW */
-    transition: opacity var(--overlay-fade) ease; /* NEW */
+    z-index: 10;
+    opacity:1;
+    transition: opacity var(--overlay-fade) ease;
   }
-  .logo-overlay.fade-out{ opacity:0; }       /* NEW：触发渐出 */
+  .logo-overlay.fade-out{ opacity:0; }
 
   .logo-box{
     width: var(--logo-width);
@@ -85,42 +79,16 @@
     85% { stroke-dashoffset: 0;           opacity:1 }
     100%{ stroke-dashoffset: 0;           opacity:1 }
   }
-
-  /* 外圈 */
-  .ring{
-    position:absolute; inset:0;
-    display:flex; align-items:center; justify-content:center;
-    pointer-events:none;
-    opacity:0;
-    transition: opacity var(--ring-fade) ease;
-  }
-  .ring::before{
-    content:"";
-    width: var(--ring-size);
-    height: var(--ring-size);
-    border-radius: 50%;
-    border: var(--ring-stroke) solid var(--ring-color);
-    opacity:0; transform: scale(.98);
-    transition:
-      opacity var(--ring-fade) ease,
-      transform var(--ring-grow) ease;
-    will-change: opacity, transform;
-  }
-  .logo-overlay.ring-on .ring{ opacity:1; }
-  .logo-overlay.ring-on .ring::before{
-    opacity:1; transform: scale(1);
-  }
 </style>
 </head>
 <body>
 
-  <!-- 背景视频（NEW: 去掉 loop，让视频只播放一次） -->
+  <!-- 背景视频（不循环） -->
   <video id="demoVideo" src="demo1.mp4" muted playsinline></video>
 
-  <!-- Logo + 圆圈 -->
+  <!-- Logo -->
   <div class="logo-overlay" id="overlay" aria-hidden="true">
     <div class="logo-box" id="logoBox"></div>
-    <div class="ring" aria-hidden="true"></div>
   </div>
 
 <script>
@@ -129,8 +97,7 @@
   const box = document.getElementById('logoBox');
   const video = document.getElementById('demoVideo');
 
-  // 保险起见：确保不循环（即使有人误加了 loop）
-  video.loop = false; /* NEW */
+  video.loop = false; // 只播放一次
 
   // 加载 SVG
   let svgText = '';
@@ -174,33 +141,45 @@
   // 延迟 1 秒启动动画
   setTimeout(() => {
     box.classList.add('start');
-    waitForAllAnimationsThenShowRing();
+    waitForAllAnimationsThenPlayVideo();
   }, 1000);
 
-  function waitForAllAnimationsThenShowRing(){
+  function waitForAllAnimationsThenPlayVideo(){
     const strokes = svg.querySelectorAll('.bioecho-stroke');
     let remaining = strokes.length + 1;
 
     const done = () => {
       remaining--;
       if (remaining <= 0) {
-        overlay.classList.add('ring-on'); // 外圈出现
-        // 外圈出现后，显示并播放背景视频
-        setTimeout(()=>{
-          video.classList.add('show');
-          const tryPlay = () => video.play().catch(e=>console.log("Autoplay blocked:",e));
-          tryPlay();
+        // 所有动画结束后 → 显示并播放视频
+        video.classList.add('show');
+        video.play().catch(e=>console.log("Autoplay blocked:",e));
 
-          // NEW: 只要视频一进入 playing 状态，就把覆盖层淡出
-          const onPlaying = () => {
-            overlay.classList.add('fade-out');            // 渐出 Logo & 圈
-            overlay.addEventListener('transitionend', ()=> {
-              overlay.style.display = 'none';             // 过渡结束后隐藏
+        // NEW: 读取 CSS 中的 --video-fade，计算“提前 0.5s”触发淡出
+        const root = getComputedStyle(document.documentElement);
+        const fadeStr = root.getPropertyValue('--video-fade').trim() || '1.5s';
+        const videoFadeMs = toMs(fadeStr);                 // 例如 1.5s -> 1500
+        const leadMs = 500;                                // 0.5s 重叠
+        const startFadeOutAfter = Math.max(videoFadeMs - leadMs, 0);
+
+        // 在视频淡入结束前 0.5s 开始淡出 Logo
+        setTimeout(() => {
+          overlay.classList.add('fade-out');
+          overlay.addEventListener('transitionend', ()=>{
+            overlay.style.display = 'none';
+          }, { once:true });
+        }, startFadeOutAfter);
+
+        // 兼容：如果浏览器不触发 transitionend，也在淡入完成时兜底隐藏
+        video.addEventListener('transitionend', () => {
+          // 如果尚未开始淡出，则现在开始；如果已开始则忽略
+          if (!overlay.classList.contains('fade-out')) {
+            overlay.classList.add('fade-out');
+            overlay.addEventListener('transitionend', ()=>{
+              overlay.style.display = 'none';
             }, { once:true });
-            video.removeEventListener('playing', onPlaying);
-          };
-          video.addEventListener('playing', onPlaying);
-        }, 800); // 跟 --ring-fade 对齐
+          }
+        }, { once:true });
       }
     };
 
@@ -208,6 +187,15 @@
       if (e.animationName === 'pulse') done();
     });
     strokes.forEach(el => el.addEventListener('animationend', done, { once:true }));
+  }
+
+  // 工具：把 "1.5s" / "800ms" 解析为毫秒
+  function toMs(str){
+    const s = String(str).trim();
+    if (s.endsWith('ms')) return parseFloat(s);
+    if (s.endsWith('s'))  return parseFloat(s) * 1000;
+    const n = parseFloat(s);
+    return isNaN(n) ? 1500 : n; // 默认 1500ms
   }
 })();
 </script>
